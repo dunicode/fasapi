@@ -1,5 +1,9 @@
-# uvicorn main:app --reload
-
+#################################################################################
+# virtualenv -p python3 env                                                     #
+# source env/bin/activate                                                       #
+# pip3 install fastapi[standard] bcrypt pyjwt python-multipart email-validator  #
+# uvicorn main:app --reload                                                     #
+#################################################################################
 import sqlite3
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -11,16 +15,16 @@ from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, EmailStr, Field
 
-# --- Configuración ---
+# --- Configuration ---
 DATABASE_URL = "sqlite.db"
 SECRET_KEY = "tu_clave_secreta_super_segura_cambiala_en_produccion"
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 horas
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
 
 security = HTTPBearer(auto_error=False)
 
 
-# --- Gestión de Base de Datos SQLite ---
+# --- SQLite Database Management ---
 def get_db():
     conn = sqlite3.connect(DATABASE_URL, check_same_thread=False)
     conn.row_factory = sqlite3.Row
@@ -31,7 +35,7 @@ def get_db():
 
 
 def init_db():
-    """Crea la tabla de usuarios si no existe."""
+    """Create the users table if it does not exist."""
     with sqlite3.connect(DATABASE_URL) as conn:
         cursor = conn.cursor()
         cursor.execute(
@@ -49,23 +53,23 @@ def init_db():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Inicializar la base de datos al arrancar
+    # Initialize the database on startup
     init_db()
     yield
 
 
 app = FastAPI(
-    title="API de Autenticación",
-    description="API con /register y /login usando SQLite en un solo archivo",
+    title="Authentication API",
+    description="API with /register and /login using SQLite in a single file",
     version="1.0.0",
     lifespan=lifespan,
 )
 
 
-# --- Esquemas Pydantic ---
+# --- Pydantic Schemas ---
 class UserAuth(BaseModel):
-    email: EmailStr = Field(..., description="Correo electrónico del usuario")
-    password: str = Field(..., min_length=6, description="Contraseña (mínimo 6 caracteres)")
+    email: EmailStr = Field(..., description="User email address")
+    password: str = Field(..., min_length=6, description="Password (minimum 6 characters)")
 
 
 class TokenResponse(BaseModel):
@@ -84,7 +88,7 @@ class MessageResponse(BaseModel):
     message: str
 
 
-# --- Funciones de Seguridad ---
+# --- Security Functions ---
 def hash_password(password: str) -> str:
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
@@ -113,7 +117,7 @@ def get_current_user(
     if not credentials:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token no proporcionado",
+            detail="Token not provided",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -124,12 +128,12 @@ def get_current_user(
         if email is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token inválido",
+                detail="Invalid token",
             )
     except jwt.PyJWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token expirado o inválido",
+            detail="Expired or invalid token",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -139,16 +143,16 @@ def get_current_user(
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Usuario no encontrado",
+            detail="User not found",
         )
     return user
 
 
-# --- Rutas ---
+# --- Routes ---
 @app.get("/", tags=["General"])
 def read_root():
     return {
-        "message": "Bienvenido a la API de autenticación",
+        "message": "Welcome to the Authentication API",
         "docs": "/docs",
         "endpoints": ["/register", "/login", "/profile"],
     }
@@ -158,21 +162,21 @@ def read_root():
     "/register",
     response_model=MessageResponse,
     status_code=status.HTTP_201_CREATED,
-    tags=["Autenticación"],
+    tags=["Authentication"],
 )
 def register(user_data: UserAuth, conn: sqlite3.Connection = Depends(get_db)):
     cursor = conn.cursor()
     email = user_data.email.strip().lower()
 
-    # Comprobar si el email ya existe
+    # Check if email already exists
     cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
     if cursor.fetchone():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El correo electrónico ya está registrado",
+            detail="Email is already registered",
         )
 
-    # Hashear contraseña y guardar usuario
+    # Hash password and save user
     hashed_pwd = hash_password(user_data.password)
     cursor.execute(
         "INSERT INTO users (email, password_hash) VALUES (?, ?)",
@@ -180,13 +184,13 @@ def register(user_data: UserAuth, conn: sqlite3.Connection = Depends(get_db)):
     )
     conn.commit()
 
-    return {"message": f"Usuario con email '{email}' registrado exitosamente"}
+    return {"message": f"User with email '{email}' registered successfully"}
 
 
 @app.post(
     "/login",
     response_model=TokenResponse,
-    tags=["Autenticación"],
+    tags=["Authentication"],
 )
 def login(user_data: UserAuth, conn: sqlite3.Connection = Depends(get_db)):
     cursor = conn.cursor()
@@ -198,15 +202,15 @@ def login(user_data: UserAuth, conn: sqlite3.Connection = Depends(get_db)):
     )
     user = cursor.fetchone()
 
-    # Validar credenciales
+    # Validate credentials
     if not user or not verify_password(user_data.password, user["password_hash"]):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Credenciales incorrectas",
+            detail="Incorrect credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Generar Token JWT
+    # Generate JWT Token
     token = create_access_token(data={"sub": user["email"]})
 
     return {
@@ -219,10 +223,10 @@ def login(user_data: UserAuth, conn: sqlite3.Connection = Depends(get_db)):
 @app.get(
     "/profile",
     response_model=UserResponse,
-    tags=["Usuarios"],
+    tags=["Users"],
 )
 def read_current_user(current_user: sqlite3.Row = Depends(get_current_user)):
-    """Endpoint protegido para comprobar que el token funciona."""
+    """Protected endpoint to verify that the token works."""
     return {
         "id": current_user["id"],
         "email": current_user["email"],
@@ -232,5 +236,4 @@ def read_current_user(current_user: sqlite3.Row = Depends(get_current_user)):
 
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
